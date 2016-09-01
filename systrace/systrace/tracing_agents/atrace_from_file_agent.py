@@ -33,11 +33,12 @@ class AtraceFromFileAgent(tracing_agents.TracingAgent):
 
   @py_utils.Timeout(tracing_agents.START_STOP_TIMEOUT)
   def StartAgentTracing(self, options, categories, timeout=None):
-    pass
+    return True
 
   @py_utils.Timeout(tracing_agents.START_STOP_TIMEOUT)
   def StopAgentTracing(self, timeout=None):
     self._trace_data = self._read_trace_data()
+    return True
 
   def SupportsExplicitClockSync(self):
     return False
@@ -51,7 +52,11 @@ class AtraceFromFileAgent(tracing_agents.TracingAgent):
 
   def _read_trace_data(self):
     result = cmd_helper.GetCmdOutput(['cat', self._filename])
-    data_start = re.search(TRACE_START_REGEXP, result).end(0)
+    mo = re.search(TRACE_START_REGEXP, result)
+    if mo != None :
+      data_start = mo.end(0)
+    else :
+      data_start = 0
     data = re.sub(ADB_IGNORE_REGEXP, '', result[data_start:])
     return self._preprocess_data(data)
 
