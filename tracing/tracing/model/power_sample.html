@@ -28,6 +28,7 @@ tr.exportTo('tr.model', function() {
     this.series_ = series;
     this.start_ = start;
     this.powerInW_ = powerInW;
+    this.power_ = powerInW;
   }
 
   PowerSample.prototype = {
@@ -47,6 +48,10 @@ tr.exportTo('tr.model', function() {
 
     get powerInW() {
       return this.powerInW_;
+    },
+
+    get power() {
+      return this.power_;
     },
 
     set powerInW(value) {

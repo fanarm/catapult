@@ -13,6 +13,7 @@ found in the LICENSE file.
 tr.exportTo('tr.model', function() {
   var ClockDomainId = {
     BATTOR: 'BATTOR',
+    RTC: 'REAL_TIME_CLOCK',
 
     // NOTE: Exists for backwards compatibility with old Chrome traces which
     // didn't explicitly specify the clock being used.
@@ -20,6 +21,8 @@ tr.exportTo('tr.model', function() {
 
     LINUX_CLOCK_MONOTONIC: 'LINUX_CLOCK_MONOTONIC',
     LINUX_FTRACE_GLOBAL: 'LINUX_FTRACE_GLOBAL',
+    LINUX_JIFFIES: 'LINUX_JIFFIES',
+
     MAC_MACH_ABSOLUTE_TIME: 'MAC_MACH_ABSOLUTE_TIME',
     WIN_ROLLOVER_PROTECTED_TIME_GET_TIME:
         'WIN_ROLLOVER_PROTECTED_TIME_GET_TIME',
