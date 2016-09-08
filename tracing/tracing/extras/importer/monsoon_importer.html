@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2015 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/importer/importer.html">
+<link rel="import" href="/tracing/model/model.html">
+<link rel="import" href="/tracing/model/power_series.html">
+<link rel="import" href="/tracing/value/unit_scale.html">
+
+<script>
+/**
+ * @fileoverview Imports text files in the BattOr format into the
+ * Model. This format is output by the battor_agent executable and library.
+ *
+ * This importer assumes the events arrive as a string. The unit tests provide
+ * examples of the trace format.
+ */
+'use strict';
+
+tr.exportTo('tr.e.importer.monsoon', function() {
+  /**
+   * Imports a processed Monsoon power trace into a specified model.
+   * @constructor
+   */
+  function MonsoonImporter(model, events) {
+    this.importPriority = 3; // runs after the linux_perf importer
+    this.model_ = model;
+
+    // The list of power samples contained within the trace.
+    this.samples_ = [];
+    // The clock sync markers contained within the trace.
+    this.syncTimestampsById_ = new Map();
+    this.startTime_ = null;
+    this.counts_ = 0;
+    this.sampleInterval_ = 0;
+    this.voltage_ = 0;
+
+    this.parseTrace_(events);
+  }
+
+  //var battorDataLineRE = new RegExp(
+  //    '^(-?\\d+\\.\\d+)\\s+(-?\\d+\\.\\d+)\\s+(-?\\d+\\.\\d+)' +
+  //    '(?:\\s+<(\\S+)>)?$'
+  //);
+  var monsoonHeaderLineRE = /^PTXTMS##/;
+
+  /**
+   * Guesses whether the provided events is a monsoon string.
+   * Looks for the magic string "PTXTMS##" at the start of the file,
+   *
+   * @return {boolean} True when events is a monsoon array.
+   */
+  MonsoonImporter.canImport = function(events) {
+    if (!(typeof(events) === 'string' || events instanceof String))
+      return false;
+
+    return monsoonHeaderLineRE.test(events);
+  };
+
+  MonsoonImporter.prototype = {
+    __proto__: tr.importer.Importer.prototype,
+
+    get importerName() {
+      return 'MonsoonImporter';
+    },
+
+    get model() {
+      return this.model_;
+    },
+
+    /**
+     * Imports clock sync markers from the trace into into this.model_.
+     */
+    importClockSyncMarkers: function() {
+      //for (var [syncId, ts] of this.syncTimestampsById_) {
+      //  this.model_.clockSyncManager.addClockSyncMarker(
+      //      tr.model.ClockDomainId.BATTOR, syncId, ts);
+      //}
+    },
+
+    /**
+     * Imports the events from the trace into this.model_.
+     */
+    importEvents: function() {
+      if (this.model_.device.powerSeries) {
+        this.model_.importWarning({
+          type: 'import_error',
+          message: 'Power counter exists, can not import Monsoon power trace.'
+        });
+        return;
+      }
+
+      //var modelTimeTransformer =
+      //    this.model_.clockSyncManager.getModelTimeTransformer(
+      //        tr.model.ClockDomainId.RTC);
+
+      var powerSeries = this.model_.device.powerSeries =
+          new tr.model.PowerSeries(this.model_.device);
+      for (var i = 0; i < this.samples_.length; i++) {
+        var sample = this.samples_[i];
+        powerSeries.addPowerSample(
+            //modelTimeTransformer(sample.ts), sample.current);
+            (51843+i*this.sampleInterval_)*1000, sample.current*this.voltage_/1000000.0);
+      }
+    },
+
+    /**
+     * Given the monsoon trace in JSON, parse it and store the results in
+     * this.samples_ and this.syncTimestampsById_.
+     */
+    parseTrace_: function(trace) {
+      var power_hdr = JSON.parse(trace.substring(8))
+      this.startTime_ = 50260 //power_hdr.startTime;
+      this.voltage_ = power_hdr.voltage;
+      this.sampleInterval_ = power_hdr.sampleIntervalMs/1000.0;
+      var buffer = new ArrayBuffer(
+          tr.b.Base64.getDecodedBufferLength(power_hdr.data));
+      var data_view = new DataView(buffer);
+      var len = tr.b.Base64.DecodeToTypedArray(power_hdr.data, data_view);
+      var preval = 0;   
+      for (var i=0; i<power_hdr.sampleNum; i++) {
+        // Parse power sample.
+        var current = data_view.getInt16(i*2,true);
+        if (current === 0x8001) val = preval;
+        else if (current & 1) current = (current-1)*250;
+        preval = current;
+
+        //if (syncId)
+        //  this.syncTimestampsById_.set(syncId, ts);
+        this.samples_.push(new Sample(current));
+      }
+    }
+  };
+
+  /**
+   * A sample recorded by a Monsoon.
+   *
+   * @param {number} ts The timestamp (in milliseconds) of the sample.
+   * @param {number} voltage The voltage (in volts) at the specified time.
+   * @param {number} current The current (in amps) at the specified time.
+   *
+   * @constructor
+   */
+  function Sample(current) {
+    this.current = current;
+  }
+
+  //Sample.prototype = {
+    /** Returns the instantaneous power consumption (in Watts). */
+  //  get powerInW() { return this.voltageInV * this.currentInA; }
+  //};
+
+  tr.importer.Importer.register(MonsoonImporter);
+
+  return {
+    MonsoonImporter: MonsoonImporter
+  };
+});
+
+</script>
