@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2013 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/base/iteration_helpers.html">
+<link rel="import" href="/tracing/ui/analysis/analysis_sub_view.html">
+<link rel="import" href="/tracing/ui/base/table.html">
+
+<dom-module id='tr-ui-a-counter-sample-sub-view'>
+  <template>
+    <style>
+    :host {
+      display: flex;
+      flex-direction: column;
+    }
+    #sample_table {
+      flex: 1 1 auto;
+      align-self: stretch;
+    }
+
+    #stat_table {
+      flex: 1 1 auto;
+    }
+    </style>
+    <tr-ui-b-table id='sample_table'></tr-ui-b-table>
+    <tr-ui-b-table id='stat_table'></tr-ui-b-table>
+  </template>
+</dom-module>
+
+<script>
+'use strict';
+(function() {
+  var COUNTER_SAMPLE_TABLE_COLUMNS = [
+    {
+      title: 'Counter',
+      width: '150px',
+      value: function(row) { return row.counter; }
+    },
+    {
+      title: 'Series',
+      width: '150px',
+      value: function(row) { return row.series; }
+    },
+    {
+      title: 'Time',
+      width: '150px',
+      value: function(row) { return row.start; }
+    },
+    {
+      title: 'Value',
+      width: '100%',
+      value: function(row) { return row.value; }
+    }
+  ];
+
+  var COUNTER_STAT_TABLE_COLUMNS = [
+    {
+      title: 'Counter',
+      width: '150px',
+      value: function(row) { return row.counter; }
+    },
+    {
+      title: 'Series',
+      width: '150px',
+      value: function(row) { return row.series; }
+    },
+    {
+      title: 'Key',
+      width: '150px',
+      value: function(row) { return row.key; }
+    },
+    {
+      title: 'Duration',
+      width: '150px',
+      value: function(row) { return row.duration; }
+    },
+    {
+      title: 'Percentage (%)',
+      width: '100%',
+      value: function(row) { return row.percent.toFixed(2); }
+    }
+  ];
+
+  Polymer({
+    is: 'tr-ui-a-counter-sample-sub-view',
+    behaviors: [tr.ui.analysis.AnalysisSubView],
+
+    ready: function() {
+      this.currentSelection_ = undefined;
+      this.$.sample_table.tableColumns = COUNTER_SAMPLE_TABLE_COLUMNS;
+      this.$.stat_table.tableColumns = COUNTER_STAT_TABLE_COLUMNS;
+    },
+
+    get selection() {
+      return this.currentSelection_;
+    },
+
+    set selection(selection) {
+      this.currentSelection_ = selection;
+      this.updateContents_();
+    },
+
+    updateContents_: function() {
+      if (this.selection) {
+        var res = this.getRows_(this.selection);
+        this.$.sample_table.tableRows = res.sampleRows;
+        this.$.stat_table.tableRows = res.statRows;
+      } else {
+        this.$.sample_table.tableRows = [];
+        this.$.stat_table.tableRows = [];
+      }
+      this.$.sample_table.rebuild();
+      this.$.stat_table.rebuild();
+    },
+
+    /**
+     * Returns the table rows for the specified samples.
+     *
+     * We print each counter/series combination the first time that it
+     * appears. For subsequent samples in each series, we omit the counter
+     * and series name. This makes it easy to scan to find the next series.
+     *
+     * Each series can be collapsed. In the expanded state, all samples
+     * are shown. In the collapsed state, only the first sample is displayed.
+     */
+    getRows_: function(sel) {
+      var samples = sel.toArray();
+      var samplesByCounter = tr.b.group(samples, function(sample) {
+        return sample.series.counter.guid;
+      });
+
+      var rows = [];
+      var stat_rows = [];
+      tr.b.iterItems(samplesByCounter, function(unused, counterSamples) {
+        var samplesBySeries = tr.b.group(counterSamples, function(sample) {
+          return sample.series.guid;
+        });
+
+        tr.b.iterItems(samplesBySeries, function(unused, seriesSamples) {
+          var seriesRows = this.getRowsForSamples_(seriesSamples);
+          seriesRows[0].counter = seriesSamples[0].series.counter.name;
+          seriesRows[0].series = seriesSamples[0].series.name;
+
+          if (seriesRows.length > 1) {
+            seriesRows[0].subRows = seriesRows.slice(1);
+            seriesRows[0].isExpanded = false;
+          }
+          
+          var statRows = this.getStatRowsFromSeries_(seriesRows,sel.bounds);
+          statRows[0].counter = seriesSamples[0].series.counter.name;
+          statRows[0].series = seriesSamples[0].series.name;
+          
+          if (statRows.length > 1) {
+            statRows[0].subRows = statRows.slice(1);
+            statRows[0].isExpanded = true;
+          }
+          
+          stat_rows.push(statRows[0]);
+          rows.push(seriesRows[0]);
+        }, this);
+      }, this);
+
+      return {sampleRows:rows,statRows:stat_rows};
+    },
+
+    getStatRowsFromSeries_: function(seriesRows, range) {
+      var valueDict = [];
+      var lastValue = seriesRows[0].value;
+      var start = range.min;
+      var limit = range.max;
+      var end = 0;
+      for (var i=1;i<seriesRows.length;i++) {
+        end = seriesRows[i].start;
+        if (end > limit) 
+          end = limit;
+        for (var j=0;j<valueDict.length;j++) 
+          if (valueDict[j].key == lastValue) break;
+        if (j != valueDict.length)
+          valueDict[j].duration += end-start;
+        else
+          valueDict.push({key:lastValue,duration:end-start});
+        start = end;
+        lastValue = seriesRows[i].value;
+      }
+      valueDict.unshift({key:'Total',duration:range.max-range.min});
+      for (var i=0;i<valueDict.length;i++)
+            valueDict[i].percent = valueDict[i].duration*100/range.duration;
+      return valueDict.sort(function(a,b){return b.percent-a.percent;});
+    },
+
+    getRowsForSamples_: function(samples) {
+      return samples.map(function(sample) {
+        return {
+          start: sample.timestamp,
+          value: sample.value
+        };
+      });
+    }
+  });
+
+  tr.ui.analysis.AnalysisSubView.register(
+      'tr-ui-a-counter-sample-sub-view',
+      tr.model.CounterSample,
+      {
+        multi: false,
+        title: 'Counter Sample',
+      });
+
+  tr.ui.analysis.AnalysisSubView.register(
+      'tr-ui-a-counter-sample-sub-view',
+      tr.model.CounterSample,
+      {
+        multi: true,
+        title: 'Counter Samples',
+      });
+})();
+</script>
